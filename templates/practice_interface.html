@@ -1,0 +1,279 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAT Practice - {{ student.name }}</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .question-container { 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            background: white;
+        }
+        .choice-button {
+            width: 100%;
+            text-align: left;
+            margin: 10px 0;
+            padding: 15px;
+            border: 2px solid #dee2e6;
+            background: white;
+            transition: all 0.3s;
+        }
+        .choice-button:hover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+        .choice-button.selected {
+            border-color: #007bff;
+            background-color: #e7f3ff;
+        }
+        .timer { 
+            position: fixed; 
+            top: 20px; 
+            right: 20px; 
+            background: #007bff; 
+            color: white; 
+            padding: 10px 20px; 
+            border-radius: 25px;
+            font-weight: bold;
+        }
+        .progress-indicator {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <!-- Timer -->
+    <div class="timer" id="timer">
+        <span id="questionTimer">00:00</span>
+    </div>
+    
+    <!-- Navigation -->
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container">
+            <span class="navbar-brand">📚 SAT Practice - {{ student.name }}</span>
+            <span class="text-light">Session {{ session.session_number }}</span>
+        </div>
+    </nav>
+    
+    <div class="container mt-4">
+        <!-- Progress Indicator -->
+        <div class="progress-indicator">
+            <div class="d-flex justify-content-between mb-2">
+                <span>Question <span id="currentQuestion">1</span> of {{ session.total_questions }}</span>
+                <span>Session Progress</span>
+            </div>
+            <div class="progress">
+                <div class="progress-bar" role="progressbar" id="sessionProgress" 
+                     style="width: 0%"></div>
+            </div>
+        </div>
+        
+        <!-- Question Container -->
+        <div class="question-container" id="questionContainer">
+            <!-- Question content will be loaded here -->
+        </div>
+        
+        <!-- Navigation Buttons -->
+        <div class="d-flex justify-content-between mt-4">
+            <button class="btn btn-outline-secondary" id="prevButton" onclick="previousQuestion()" disabled>
+                ← Previous
+            </button>
+            <button class="btn btn-primary" id="nextButton" onclick="nextQuestion()">
+                Next →
+            </button>
+        </div>
+        
+        <!-- End Session Modal -->
+        <div class="modal fade" id="endSessionModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Session Complete!</h5>
+                    </div>
+                    <div class="modal-body">
+                        <div class="text-center">
+                            <h3 id="finalScore">85%</h3>
+                            <p>Great job! You completed the practice session.</p>
+                            <div id="sessionSummary">
+                                <!-- Session summary will be populated here -->
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <a href="/student/{{ student.student_id }}" class="btn btn-primary">View Analytics</a>
+                        <button type="button" class="btn btn-success" onclick="startNewSession()">New Session</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Practice session state
+        let currentQuestionIndex = 0;
+        let questions = {{ session.questions | tojsonfilter }};
+        let answers = {};
+        let questionStartTime = Date.now();
+        let questionTimes = {};
+        
+        // Load first question
+        loadQuestion(0);
+        
+        function loadQuestion(index) {
+            currentQuestionIndex = index;
+            const question = questions[index];
+            
+            // Update progress
+            document.getElementById('currentQuestion').textContent = index + 1;
+            const progress = ((index) / questions.length) * 100;
+            document.getElementById('sessionProgress').style.width = progress + '%';
+            
+            // Load question content
+            const container = document.getElementById('questionContainer');
+            container.innerHTML = `
+                <div class="mb-4">
+                    <h5>Question ${index + 1}</h5>
+                    <p class="lead">${question.question_text}</p>
+                </div>
+                <div class="choices">
+                    ${question.choices.map((choice, i) => `
+                        <button class="btn choice-button" onclick="selectChoice(${i})" data-choice="${i}">
+                            ${choice}
+                        </button>
+                    `).join('')}
+                </div>
+            `;
+            
+            // Restore previous answer if any
+            if (answers[question.question_id]) {
+                const choiceIndex = answers[question.question_id].choiceIndex;
+                selectChoice(choiceIndex);
+            }
+            
+            // Update navigation buttons
+            document.getElementById('prevButton').disabled = index === 0;
+            document.getElementById('nextButton').textContent = 
+                index === questions.length - 1 ? 'Finish Session' : 'Next →';
+            
+            // Start timer for this question
+            questionStartTime = Date.now();
+            startQuestionTimer();
+        }
+        
+        function selectChoice(choiceIndex) {
+            // Clear previous selections
+            document.querySelectorAll('.choice-button').forEach(btn => {
+                btn.classList.remove('selected');
+            });
+            
+            // Select new choice
+            const choiceButton = document.querySelector(`[data-choice="${choiceIndex}"]`);
+            choiceButton.classList.add('selected');
+            
+            // Store answer
+            const question = questions[currentQuestionIndex];
+            answers[question.question_id] = {
+                choiceIndex: choiceIndex,
+                choiceText: question.choices[choiceIndex],
+                timeSpent: Date.now() - questionStartTime
+            };
+        }
+        
+        function nextQuestion() {
+            // Record time for current question
+            if (currentQuestionIndex < questions.length) {
+                const question = questions[currentQuestionIndex];
+                questionTimes[question.question_id] = Date.now() - questionStartTime;
+            }
+            
+            if (currentQuestionIndex === questions.length - 1) {
+                // End session
+                endSession();
+            } else {
+                // Go to next question
+                loadQuestion(currentQuestionIndex + 1);
+            }
+        }
+        
+        function previousQuestion() {
+            if (currentQuestionIndex > 0) {
+                loadQuestion(currentQuestionIndex - 1);
+            }
+        }
+        
+        function startQuestionTimer() {
+            const timerElement = document.getElementById('questionTimer');
+            const startTime = Date.now();
+            
+            function updateTimer() {
+                const elapsed = Date.now() - startTime;
+                const seconds = Math.floor(elapsed / 1000);
+                const minutes = Math.floor(seconds / 60);
+                const displaySeconds = seconds % 60;
+                
+                timerElement.textContent = 
+                    `${minutes.toString().padStart(2, '0')}:${displaySeconds.toString().padStart(2, '0')}`;
+            }
+            
+            updateTimer();
+            setInterval(updateTimer, 1000);
+        }
+        
+        function endSession() {
+            // Calculate results
+            let correctCount = 0;
+            let totalQuestions = questions.length;
+            
+            questions.forEach(question => {
+                const answer = answers[question.question_id];
+                if (answer && answer.choiceText === question.correct_answer) {
+                    correctCount++;
+                }
+            });
+            
+            const accuracy = (correctCount / totalQuestions) * 100;
+            
+            // Submit results
+            const sessionResults = {
+                student_id: '{{ student.student_id }}',
+                session_id: '{{ session.session_id }}',
+                answers: answers,
+                question_times: questionTimes,
+                total_time: Date.now() - {{ session.start_time }},
+                accuracy: accuracy
+            };
+            
+            fetch('/api/submit_answer', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(sessionResults)
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Show results modal
+                document.getElementById('finalScore').textContent = accuracy.toFixed(1) + '%';
+                document.getElementById('sessionSummary').innerHTML = `
+                    <p>Correct: ${correctCount}/${totalQuestions}</p>
+                    <p>Time: ${Math.floor((Date.now() - {{ session.start_time }}) / 60000)} minutes</p>
+                `;
+                
+                var modal = new bootstrap.Modal(document.getElementById('endSessionModal'));
+                modal.show();
+            });
+        }
+        
+        function startNewSession() {
+            location.href = '/practice/{{ student.student_id }}';
+        }
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

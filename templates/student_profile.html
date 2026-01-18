@@ -1,0 +1,152 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ student.name }} - SAT Analytics</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .metric-card { text-align: center; padding: 20px; margin: 10px 0; }
+        .chart-container { height: 400px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container">
+            <span class="navbar-brand">🎯 {{ student.name }} - SAT Analytics</span>
+            <div>
+                <a href="/practice/{{ student.student_id }}" class="btn btn-light me-2">📚 Practice</a>
+                <a href="/" class="btn btn-outline-light">← Dashboard</a>
+            </div>
+        </div>
+    </nav>
+    
+    <div class="container mt-4">
+        <!-- Performance Metrics -->
+        <div class="row">
+            <div class="col-md-3">
+                <div class="card metric-card bg-primary text-white">
+                    <h3>{{ student.questions_attempted }}</h3>
+                    <p>Questions Attempted</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card metric-card bg-success text-white">
+                    <h3>{{ "%.1f"|format(student.overall_accuracy * 100) }}%</h3>
+                    <p>Overall Accuracy</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card metric-card bg-info text-white">
+                    <h3>{{ student.avg_time_per_question }}s</h3>
+                    <p>Avg Time/Question</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card metric-card bg-warning text-white">
+                    <h3>{{ student.study_streak }}</h3>
+                    <p>Study Streak (days)</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Performance Charts -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">Performance by Domain</div>
+                    <div class="card-body">
+                        <div id="domainChart" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">Progress Over Time</div>
+                    <div class="card-body">
+                        <div id="progressChart" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Difficulty Analysis -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">Performance by Difficulty</div>
+                    <div class="card-body">
+                        <div id="difficultyChart" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">Common Error Patterns</div>
+                    <div class="card-body">
+                        <ul class="list-group">
+                            {% for error in student.common_errors %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                {{ error.description }}
+                                <span class="badge bg-danger rounded-pill">{{ error.frequency }}</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Recommendations -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">📈 Personalized Recommendations</div>
+                    <div class="card-body">
+                        <div class="row">
+                            {% for rec in student.recommendations %}
+                            <div class="col-md-4 mb-3">
+                                <div class="alert alert-info">
+                                    <strong>{{ rec.title }}</strong><br>
+                                    {{ rec.description }}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Load performance charts
+        fetch('/api/performance_chart/{{ student.student_id }}')
+        .then(response => response.json())
+        .then(data => {
+            // Domain performance chart
+            Plotly.newPlot('domainChart', data.domain_chart.data, data.domain_chart.layout);
+            
+            // Progress over time chart
+            Plotly.newPlot('progressChart', data.progress_chart.data, data.progress_chart.layout);
+            
+            // Difficulty performance chart
+            Plotly.newPlot('difficultyChart', data.difficulty_chart.data, data.difficulty_chart.layout);
+        });
+        
+        // Auto-refresh analytics every 30 seconds
+        setInterval(() => {
+            fetch('/api/analytics/{{ student.student_id }}')
+            .then(response => response.json())
+            .then(data => {
+                // Update metrics if needed
+            });
+        }, 30000);
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
