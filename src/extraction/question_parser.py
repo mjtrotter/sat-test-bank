@@ -59,20 +59,34 @@ def _find_problem_markers(words: List[dict], max_num: int) -> List[dict]:
     """
     Find problem number markers (e.g., '1.' followed by '___').
     Returns list of {num, y} sorted by y position.
+
+    Uses spatial proximity (not list order) to find the underscore blank
+    near each "N." marker, since PyMuPDF word order doesn't guarantee
+    physical reading order.
     """
     markers = []
-    for i, w in enumerate(words):
+    seen_nums = set()
+    for w in words:
         m = BLANK_RE.match(w["text"])
         if not m:
             continue
         num = int(m.group(1))
         if num < 1 or num > max_num:
             continue
-        # Confirm it's a problem marker: next word should be underscores
-        if i + 1 < len(words):
-            next_w = words[i + 1]
-            if "_" in next_w["text"] and abs(next_w["y"] - w["y"]) < 5:
-                markers.append({"num": num, "x": w["x"], "y": w["y"]})
+        # Find nearest blank word within spatial box (not list order).
+        # Blanks are underscores or garbled unicode (some PDFs use replacement chars).
+        def _is_blank_word(t: str) -> bool:
+            return "_" in t or "\ufffd" in t or (len(t) > 8 and t == t[0] * len(t))
+
+        has_blank = any(
+            _is_blank_word(other["text"])
+            and abs(other["y"] - w["y"]) < 5
+            and 0 < (other["x"] - w["x"]) < 80
+            for other in words
+        )
+        if has_blank and num not in seen_nums:
+            seen_nums.add(num)
+            markers.append({"num": num, "x": w["x"], "y": w["y"]})
     return sorted(markers, key=lambda m: m["y"])
 
 
@@ -80,21 +94,23 @@ def _collect_question_text(
     words: List[dict],
     y_start: float,
     y_end: float,
-    x_threshold: float = QUESTION_X_THRESHOLD,
+    x_threshold: float = 0,
 ) -> str:
     """
     Collect question text from words between y_start and y_end.
-    Only includes words to the right of x_threshold (skips blank column).
+    Filters out blank words, problem number markers, and boilerplate.
     """
-    # Gather words in the y-range that are in the question text area
     q_words = []
     for w in words:
-        if w["y"] < y_start - 2 or w["y"] >= y_end:
+        if w["y"] < y_start - 8 or w["y"] >= y_end:
             continue
-        if w["x"] < x_threshold and "_" not in w["text"]:
-            # Left column word that's not a blank — could be unit label, skip
+        if w["x"] < x_threshold:
             continue
-        if "_" in w["text"]:
+        # Skip underscore/blank words
+        if "_" in w["text"] or "\ufffd" in w["text"]:
+            continue
+        # Skip standalone problem number markers (e.g., "6.")
+        if BLANK_RE.match(w["text"]):
             continue
         q_words.append(w)
 
