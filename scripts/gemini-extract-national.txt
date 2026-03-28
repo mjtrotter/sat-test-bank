@@ -1,0 +1,65 @@
+You are extracting math competition problems from MATHCOUNTS National Competition PDFs into structured JSON.
+
+SOURCE: ~/Downloads/MathCounts Tests/{YEAR}/national/ — each year has sprint, target, team, and answers PDFs.
+
+APPROACH:
+1. Convert each PDF page to a 200dpi PNG using PyMuPDF (fitz). Save to /tmp/mc_national_{YEAR}/
+2. Read each PNG image visually to extract problem text and answers
+3. Match answers to questions by round + problem number
+4. Validate counts: Sprint=30, Target=8, Team=10 — EXACTLY. No exceptions.
+5. Write JSON to ~/Desktop/Dev/Vanguard/data/extracted/{YEAR}_national.json
+
+CONVERT SCRIPT (run per year):
+```python
+import fitz, os
+year = 2008
+base = os.path.expanduser(f"~/Downloads/MathCounts Tests/{year}/national/")
+out = f"/tmp/mc_national_{year}"
+os.makedirs(out, exist_ok=True)
+for fname in os.listdir(base):
+    if not fname.endswith('.pdf'): continue
+    prefix = fname.split()[0]
+    doc = fitz.open(os.path.join(base, fname))
+    for pg in range(len(doc)):
+        pix = doc[pg].get_pixmap(dpi=200)
+        pix.save(f"{out}/{prefix}_page{pg}.png")
+    doc.close()
+print(f"Converted {year} to {out}")
+```
+
+OUTPUT SCHEMA (one JSON array per year file):
+```json
+[
+  {
+    "contest_family": "mathcounts",
+    "contest_year": 2008,
+    "contest_round": "sprint",
+    "contest_level": "national",
+    "problem_number": 1,
+    "problem_text": "Full question text here...",
+    "answer": "16",
+    "source_path": "~/Downloads/MathCounts Tests/2008/national/sprint *.pdf",
+    "figure_paths": []
+  }
+]
+```
+
+ANSWER FORMAT:
+- Numbers: "16", "320000", "2.5" (no commas)
+- Fractions: "1/36", "4/3" (slash notation)
+- Expressions: "2pi-3", "6sqrt(7)", "sqrt(13)"
+- Exponents: "5^12"
+- Variables: "md/(3n)"
+- Strip all units (no "cu feet", "ounces", etc.)
+
+CRITICAL RULES:
+- IGNORE the Countdown Round in answer keys (only Sprint/Target/Team)
+- Skip cover pages (instructions, honor pledge)
+- Trust what you SEE in images, not OCR text — stacked fractions are invisible to text extraction
+- 2013 team is a .txt not .pdf — skip or handle gracefully
+- If counts don't match, re-read images until they do. Do not output incomplete data.
+
+START WITH 2008 ONLY as a test batch. Print:
+- Count per round
+- 3 sample problems with answers per round (9 total)
+- Then STOP and wait for my approval before running all years (2002-2013)
