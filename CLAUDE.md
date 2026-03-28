@@ -1,4 +1,4 @@
-# sat-test-bank
+# Vanguard
 
 ## Stack
 - Language: Python
@@ -36,4 +36,4 @@ run_tests(test_command, working_dir)
 ```
 
 ## Project Notes
-SAT practice test bank and analysis system
+Adaptive training platform for gifted students (grades 6-8). Math competitions MVP, SAT and Writing verticals to follow.
