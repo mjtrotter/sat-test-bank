@@ -14,6 +14,7 @@ import fitz
 
 EXPECTED_COUNTS = {"sprint": 30, "target": 8, "team": 10}
 SECTION_RE = re.compile(r"(Sprint|Target|Team)\s+Round", re.IGNORECASE)
+SKIP_SECTION_RE = re.compile(r"(Countdown|Tiebreaker)\s+Round", re.IGNORECASE)
 
 UNIT_WORDS = {
     "hours", "hour", "minutes", "minute", "seconds", "second", "days", "day",
@@ -147,9 +148,84 @@ def _match_answers(
     return answers
 
 
-def parse_answer_key(pdf_path: str) -> Dict[str, Dict[int, str]]:
+def _parse_inline_answers(
+    words: List[dict], max_num: int
+) -> Dict[int, str]:
+    """
+    Parse inline answer format used in national-level answer keys.
+
+    National keys have "N." followed directly by the answer value (no underscore blanks).
+    Multi-column layout — markers appear at various x positions.
+    """
+    answers = {}
+    for i, w in enumerate(words):
+        m = re.match(r"^(\d+)\.$", w["text"])
+        if not m:
+            continue
+        num = int(m.group(1))
+        if num < 1 or num > max_num:
+            continue
+
+        # Collect answer words: within 15px y and to the right of this marker
+        answer_words = []
+        for j, other in enumerate(words):
+            if j == i:
+                continue
+            dy = abs(other["y"] - w["y"])
+            dx = other["x"] - w["x2"]
+            if dy < 15 and 0 < dx < 150:
+                answer_words.append(other)
+
+        answer_words.sort(key=lambda aw: aw["x"])
+
+        # Take numeric-looking answer value(s). Stop at any alphabetic word (unit).
+        parts = []
+        for aw in answer_words:
+            text = aw["text"].strip().rstrip(".,;:")
+            if not text or "_" in text:
+                continue
+            if text in ("$", "(", ")", ",", "or", "md", "dm"):
+                continue
+            # If it looks like a number/expression, keep it as part of the answer
+            is_numeric = bool(re.match(
+                r'^[−\-]?\d+([./,]\d+)*$|'   # integers, decimals, fractions
+                r'^[−\-]?\d*[./]\d+$|'        # .5, 3/4
+                r'^\d+[a-z]?$|'               # like "2jc" (expression)
+                r'^[−\-]?\d+$',               # negative integers
+                text
+            ))
+            if not is_numeric:
+                break  # hit a unit/label word — answer is complete
+            parts.append(text)
+            if len(parts) >= 2:
+                break
+
+        if parts:
+            answer = " ".join(parts)
+            # Detect stacked fractions: two integers vertically aligned
+            # Check if there's a second number directly below the first
+            if len(parts) == 1 and re.match(r"^-?\d+$", parts[0]):
+                for aw in answer_words:
+                    if abs(aw["x"] - answer_words[0]["x"]) < 8 and aw["y"] > answer_words[0]["y"] + 5:
+                        denom = aw["text"].strip()
+                        if re.match(r"^-?\d+$", denom):
+                            answer = f"{parts[0]}/{denom}"
+                        break
+
+            answer = re.sub(r"\s*\(.*?\)\s*$", "", answer).strip()
+            if answer and num not in answers:
+                answers[num] = answer
+
+    return answers
+
+
+def parse_answer_key(pdf_path: str, use_inline: bool = False) -> Dict[str, Dict[int, str]]:
     """
     Parse a MATHCOUNTS answer key PDF.
+
+    Args:
+        use_inline: If True, use inline parser (for national-level keys without underscore blanks).
+                    If False (default), use spatial blank+value parser (for chapter/state keys).
 
     Returns: {round_type: {problem_num: answer_str}}
     """
@@ -157,11 +233,27 @@ def parse_answer_key(pdf_path: str) -> Dict[str, Dict[int, str]]:
     all_answers: Dict[str, Dict[int, str]] = {}
     current_section: Optional[str] = None
 
+    # Auto-detect: check if answer pages have "N." + underscore blank pairs
+    if not use_inline:
+        blank_count = 0
+        for page_idx in range(len(doc)):
+            text = doc[page_idx].get_text()
+            if not SECTION_RE.search(text):
+                continue
+            words = _get_words(doc[page_idx])
+            blanks = _find_blanks(words, 30)
+            blank_count += len(blanks)
+        if blank_count < 5:
+            use_inline = True
+
     for page_idx in range(len(doc)):
         page = doc[page_idx]
         text = page.get_text()
 
         # Detect section header
+        if SKIP_SECTION_RE.search(text):
+            current_section = None
+            continue
         m = SECTION_RE.search(text)
         if m:
             current_section = m.group(1).lower()
@@ -173,13 +265,16 @@ def parse_answer_key(pdf_path: str) -> Dict[str, Dict[int, str]]:
 
         max_num = EXPECTED_COUNTS.get(current_section, 30)
         words = _get_words(page)
-        blanks = _find_blanks(words, max_num)
 
-        if not blanks:
-            continue
+        if use_inline:
+            page_answers = _parse_inline_answers(words, max_num)
+        else:
+            blanks = _find_blanks(words, max_num)
+            if not blanks:
+                continue
+            candidates = _find_answer_candidates(words)
+            page_answers = _match_answers(blanks, candidates)
 
-        candidates = _find_answer_candidates(words)
-        page_answers = _match_answers(blanks, candidates)
         all_answers[current_section].update(page_answers)
 
     doc.close()
