@@ -1,168 +1,243 @@
+"""
+MATHCOUNTS extraction pipeline.
+
+Walks the PDF directory, classifies files, extracts questions + answers + images,
+and outputs structured JSON per year/level. Focuses on 2002-2013 chapter/state
+(native digital PDFs with clean text extraction).
+
+Usage:
+    python -m src.extraction [pdf_dir] [--output-dir data/extracted/]
+"""
 
 import json
 import os
+import random
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Optional
 
-from src.extraction.parser import MathCountsParser
 from src.extraction.answer_parser import parse_answer_key
+from src.extraction.question_parser import parse_questions
+from src.extraction.image_extractor import extract_images
 
-def get_metadata_from_path(path: Path) -> Dict[str, Any]:
-    """Extracts contest metadata from the PDF's file path."""
-    parts = path.parts
-    # Expected structure: .../year/level/round.pdf
-    try:
-        year = int(parts[-3])
-        level = parts[-2].lower()
-        round_name = path.stem.lower()
-        
-        # Clean round name
-        if "sprint" in round_name:
-            round_type = "sprint"
-        elif "target" in round_name:
-            round_type = "target"
-        elif "team" in round_name:
-            round_type = "team"
-        elif "countdown" in round_name:
-            round_type = "countdown"
-        else:
-            round_type = "unknown"
 
-        return {
-            "contest_year": year,
-            "contest_level": level,
-            "contest_round": round_type,
-            "contest_family": "mathcounts",
-        }
-    except (IndexError, ValueError) as e:
-        print(f"Could not parse metadata from path: {path}. Error: {e}")
-        return {}
+ROUND_TYPES = ["sprint", "target", "team"]
+EXPECTED_COUNTS = {"sprint": 30, "target": 8, "team": 10}
 
-def find_answer_key_path(problem_pdf_path: Path) -> Optional[Path]:
-    """Finds the corresponding answer key PDF for a given problem PDF."""
-    directory = problem_pdf_path.parent
-    base_name = problem_pdf_path.stem
-    
-    # Common answer key naming conventions
-    possible_names = [
-        f"{base_name}_answers.pdf",
-        f"{base_name}-answers.pdf",
-        "answers.pdf",
-        "answer_key.pdf",
-    ]
-    
-    for name in possible_names:
-        if (directory / name).exists():
-            return directory / name
-    
-    # Fallback search for any file with 'answers' in the name
-    for f in directory.glob("*answer*.pdf"):
-        return f
+# Years with clean digital PDFs (not scanned/OCR)
+CLEAN_YEARS = range(2002, 2014)
+CLEAN_LEVELS = ["chapter", "state"]
 
-    return None
 
-def process_single_pdf(pdf_path: Path) -> List[Dict[str, Any]]:
-    """Processes a single problem PDF, finds its answers, and returns structured data."""
-    print(f"Processing: {pdf_path.name}")
-    
-    metadata = get_metadata_from_path(pdf_path)
-    if not metadata:
-        return []
-
-    # 1. Parse problems
-    parser = MathCountsParser(str(pdf_path))
-    try:
-        problems = parser.parse()
-    except Exception as e:
-        print(f"  ERROR parsing problems from {pdf_path.name}: {e}")
-        return []
-
-    # 2. Find and parse answers
-    answers = {}
-    answer_key_path = find_answer_key_path(pdf_path)
-    if answer_key_path:
-        print(f"  Found answer key: {answer_key_path.name}")
-        try:
-            answers = parse_answer_key(str(answer_key_path))
-        except Exception as e:
-            print(f"  ERROR parsing answers from {answer_key_path.name}: {e}")
-    else:
-        print("  WARNING: No answer key found.")
-
-    # 3. Combine problems and answers into the final schema
-    output_data = []
-    for problem in problems:
-        problem_num = problem["problem_number"]
-        final_problem = {
-            "contest_family": metadata.get("contest_family"),
-            "contest_year": metadata.get("contest_year"),
-            "contest_round": metadata.get("contest_round"),
-            "contest_level": metadata.get("contest_level"),
-            "problem_number": problem_num,
-            "problem_text": problem["problem_text"],
-            "answer": answers.get(problem_num),
-            "source_path": str(pdf_path),
-            # Fields from the model that we don't extract yet
-            "official_solution": None,
-            "mark_explanation": None,
-            "mark_audio_url": None,
-            "mark_diagram_url": None,
-            "personality_variants": None,
-            "explanation_rating": None,
-            "explanation_flags": 0,
-            "latex_content": None,
-            "difficulty_band": None,
-            "primary_domain": None,
-            "problem_style": None,
-        }
-        output_data.append(final_problem)
-        
-    return output_data
-
-def run_pipeline():
+def classify_files(dirpath: str) -> Dict[str, Optional[str]]:
     """
-    Walks the input directory, processes all MATHCOUNTS PDFs, and outputs structured data.
+    Classify PDF files in a directory by type.
+    Returns: {sprint: path, target: path, team: path, answers: path, solutions: path}
     """
-    input_dir = Path(os.path.expanduser("~/Downloads/MathCounts Tests/"))
-    if not input_dir.is_dir():
-        print(f"Error: Input directory not found at {input_dir}")
-        return
+    result = {k: None for k in ROUND_TYPES + ["answers", "solutions"]}
+    for f in os.listdir(dirpath):
+        if not f.endswith(".pdf"):
+            continue
+        name_lower = f.lower()
+        for key in result:
+            if name_lower.startswith(key):
+                result[key] = os.path.join(dirpath, f)
+                break
+    return result
 
-    all_extracted_problems = []
-    processed_files = 0
-    errors = 0
-    
-    # Using a sample of 5 PDFs for testing as requested
-    pdf_paths = list(input_dir.rglob("*.pdf"))
-    sample_paths = [p for p in pdf_paths if 'answer' not in p.name.lower()][:5]
 
-    print(f"Starting pipeline. Processing {len(sample_paths)} sample PDFs...")
+def process_level(
+    year: int,
+    level: str,
+    dirpath: str,
+    output_dir: str,
+    image_dir: str,
+) -> Dict:
+    """
+    Process all rounds for a single year/level.
+    Returns stats dict.
+    """
+    files = classify_files(dirpath)
+    stats = {
+        "year": year,
+        "level": level,
+        "problems_extracted": 0,
+        "answers_matched": 0,
+        "images_extracted": 0,
+        "issues": [],
+    }
 
-    for pdf_path in sample_paths:
+    # Parse answers first (from the answer key PDF)
+    all_answers = {"sprint": {}, "target": {}, "team": {}}
+    if files["answers"]:
         try:
-            extracted_data = process_single_pdf(pdf_path)
-            if extracted_data:
-                all_extracted_problems.extend(extracted_data)
-                processed_files += 1
-            else:
-                errors +=1
+            all_answers = parse_answer_key(files["answers"])
         except Exception as e:
-            print(f"FATAL ERROR processing {pdf_path.name}: {e}")
-            errors += 1
+            stats["issues"].append(f"answer key parse error: {e}")
 
-    # Output results
-    output_path = Path("/Users/mjtrotter/Desktop/Dev/Vanguard/src/extraction/extraction_results.json")
-    with open(output_path, "w") as f:
-        json.dump(all_extracted_problems, f, indent=2)
+    # Process each round type
+    all_problems = []
+    for rtype in ROUND_TYPES:
+        if not files[rtype]:
+            stats["issues"].append(f"missing {rtype} PDF")
+            continue
 
-    # Print statistics
-    print("\n" + "="*50)
-    print("Extraction Pipeline Complete")
-    print(f"Total PDFs processed: {processed_files}")
-    print(f"Total problems extracted: {len(all_extracted_problems)}")
-    print(f"Files with errors: {errors}")
-    print(f"Results saved to: {output_path}")
-    print("="*50)
+        # Extract questions
+        try:
+            questions = parse_questions(files[rtype], rtype)
+        except Exception as e:
+            stats["issues"].append(f"{rtype} parse error: {e}")
+            continue
 
-if __name__ == "__main__":
-    run_pipeline()
+        expected = EXPECTED_COUNTS[rtype]
+        if len(questions) != expected:
+            stats["issues"].append(f"{rtype}: got {len(questions)}/{expected} questions")
+
+        # Extract images
+        figures = []
+        img_subdir = os.path.join(image_dir, f"{year}", f"{level}", rtype)
+        try:
+            # Pass problem markers for image-to-problem association
+            markers = [{"num": q["problem_number"], "page": q["page"], "y": 0} for q in questions]
+            figures = extract_images(files[rtype], img_subdir, markers)
+            stats["images_extracted"] += len(figures)
+        except Exception as e:
+            stats["issues"].append(f"{rtype} image extraction error: {e}")
+
+        # Build figure lookup
+        fig_lookup = {}
+        for fig in figures:
+            num = fig["problem_number"]
+            if num not in fig_lookup:
+                fig_lookup[num] = []
+            fig_lookup[num].append(fig["image_path"])
+
+        # Merge questions with answers and figures
+        answers = all_answers.get(rtype, {})
+        for q in questions:
+            num = q["problem_number"]
+            problem = {
+                "contest_family": "mathcounts",
+                "contest_year": year,
+                "contest_round": rtype,
+                "contest_level": level,
+                "problem_number": num,
+                "problem_text": q["problem_text"],
+                "answer": answers.get(num),
+                "source_path": files[rtype],
+                "figure_paths": fig_lookup.get(num, []),
+            }
+            all_problems.append(problem)
+            stats["problems_extracted"] += 1
+            if answers.get(num):
+                stats["answers_matched"] += 1
+
+    # Write output JSON
+    if all_problems:
+        out_path = os.path.join(output_dir, f"{year}_{level}.json")
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "w") as f:
+            json.dump(all_problems, f, indent=2)
+
+    return stats
+
+
+def run_pipeline(
+    pdf_dir: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    image_dir: Optional[str] = None,
+    years: Optional[range] = None,
+    levels: Optional[List[str]] = None,
+):
+    """
+    Run the full extraction pipeline.
+    """
+    pdf_dir = pdf_dir or os.path.expanduser("~/Downloads/MathCounts Tests/")
+    output_dir = output_dir or os.path.join(os.path.dirname(__file__), "../../data/extracted/")
+    image_dir = image_dir or os.path.join(os.path.dirname(__file__), "../../data/figures/")
+    years = years or CLEAN_YEARS
+    levels = levels or CLEAN_LEVELS
+
+    output_dir = os.path.abspath(output_dir)
+    image_dir = os.path.abspath(image_dir)
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(image_dir, exist_ok=True)
+
+    print(f"MATHCOUNTS Extraction Pipeline")
+    print(f"  PDF source: {pdf_dir}")
+    print(f"  Output: {output_dir}")
+    print(f"  Years: {min(years)}-{max(years)}")
+    print(f"  Levels: {', '.join(levels)}")
+    print("=" * 60)
+
+    total_stats = {
+        "levels_processed": 0,
+        "levels_perfect": 0,
+        "total_problems": 0,
+        "total_answers": 0,
+        "total_images": 0,
+        "all_issues": [],
+    }
+
+    all_extracted = []
+
+    for year in years:
+        for level in levels:
+            dirpath = os.path.join(pdf_dir, str(year), level)
+            if not os.path.isdir(dirpath):
+                continue
+
+            stats = process_level(year, level, dirpath, output_dir, image_dir)
+            total_stats["levels_processed"] += 1
+            total_stats["total_problems"] += stats["problems_extracted"]
+            total_stats["total_answers"] += stats["answers_matched"]
+            total_stats["total_images"] += stats["images_extracted"]
+
+            is_perfect = (
+                stats["problems_extracted"] == 48  # 30+8+10
+                and not stats["issues"]
+            )
+            if is_perfect:
+                total_stats["levels_perfect"] += 1
+
+            status = "✓" if is_perfect else "~"
+            answer_pct = (
+                f"{stats['answers_matched']}/{stats['problems_extracted']}"
+                if stats["problems_extracted"] > 0
+                else "0/0"
+            )
+            print(f"  {status} {year}/{level}: {stats['problems_extracted']} problems, "
+                  f"{answer_pct} answers, {stats['images_extracted']} images")
+
+            if stats["issues"]:
+                for iss in stats["issues"]:
+                    print(f"      ⚠ {iss}")
+                    total_stats["all_issues"].append(f"{year}/{level}: {iss}")
+
+            # Load extracted problems for spot-check
+            out_path = os.path.join(output_dir, f"{year}_{level}.json")
+            if os.path.exists(out_path):
+                with open(out_path) as f:
+                    all_extracted.extend(json.load(f))
+
+    # Summary
+    print("\n" + "=" * 60)
+    print("EXTRACTION COMPLETE")
+    print(f"  Levels: {total_stats['levels_perfect']}/{total_stats['levels_processed']} perfect")
+    print(f"  Problems: {total_stats['total_problems']}")
+    print(f"  Answers matched: {total_stats['total_answers']}")
+    print(f"  Images: {total_stats['total_images']}")
+    print(f"  Issues: {len(total_stats['all_issues'])}")
+
+    # Spot-check: print 3 random problems
+    if all_extracted:
+        print("\n--- SPOT CHECK (3 random problems) ---")
+        samples = random.sample(all_extracted, min(3, len(all_extracted)))
+        for s in samples:
+            print(f"\n  [{s['contest_year']} {s['contest_level']} {s['contest_round']} #{s['problem_number']}]")
+            text = s["problem_text"][:150]
+            print(f"  Q: {text}{'...' if len(s['problem_text']) > 150 else ''}")
+            print(f"  A: {s['answer']}")
+            if s.get("figure_paths"):
+                print(f"  Figures: {len(s['figure_paths'])}")
+
+    return total_stats
