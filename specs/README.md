@@ -1,6 +1,6 @@
-# Specs Index — Gifted Adaptive Trainer
+# Specs Index — Vanguard Adaptive Trainer
 
-> Project working name: **Gifted Adaptive Trainer** (repo: `sat-test-bank`, pending rename)
+> Project: **Vanguard** (repo: `Vanguard/`)
 > Last verified: 2026-03-28 via discovery session (Mark Trotter, 6 batches)
 
 ## Spec Files
@@ -12,7 +12,11 @@
 | [ux.md](ux.md) | **Verified** | Progression model, UI principles, gamification |
 | [data-model.md](data-model.md) | **Verified** | Problem taxonomy, student data, explanation pipeline |
 | [constraints.md](constraints.md) | **Verified** | Compliance, anti-patterns, hard rules |
-| [GAPS.md](GAPS.md) | **Active** | Known unknowns — blocking and non-blocking |
+| [taxonomy.md](taxonomy.md) | **Verified** | 6-domain, 3-level skill taxonomy skeleton (superseded by atomic) |
+| [taxonomy-atomic.md](taxonomy-atomic.md) | **In Progress** | 300-500+ atomic ELO-ratable skill nodes, Levels 1-5 |
+| [rating-system.md](rating-system.md) | **Verified** | Glicko-2 + Bayesian IRT, scale 400-2800, multi-dimensional |
+| [extraction-pipeline.md](extraction-pipeline.md) | **Verified** | 3 pipelines (MATHCOUNTS, textbooks, AoPS wiki), ~23K problems |
+| [GAPS.md](GAPS.md) | **Active** | Known unknowns — 1 blocking, 6 non-blocking remain |
 
 ## Discovery Session Summary
 

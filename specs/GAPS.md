@@ -2,21 +2,23 @@
 
 ## Blocking (Must resolve before architect session)
 
-- [x] **Granular skill taxonomy** — resolved 2026-03-28: Draft taxonomy synthesized from 11 source textbook TOCs. 6 primary domains with Level 1-3 progressions defined for Counting/Probability, Algebra, Number Theory, and Geometry. See `specs/taxonomy.md`. Will refine during ingestion as natural clustering emerges.
+- [x] **Granular skill taxonomy** — resolved 2026-03-28: Draft taxonomy synthesized from 11 source textbook TOCs. 6 primary domains with Level 1-3 progressions. See `specs/taxonomy.md`. **Atomic decomposition in progress** — expanding to 300-500+ ratable nodes with Level 4-5 extension for AIME/olympiad. See `specs/taxonomy-atomic.md`.
+- [x] **Rating system design** — resolved 2026-03-28: Glicko-2 (not plain ELO) + Bayesian IRT recalibration. Scale 400-2800, 6 mastery bands, multi-dimensional (global → domain → skill node). Cold-start via expert priors + content heuristics + mini-model solve-rate calibration. See `specs/rating-system.md`.
+- [x] **Content extraction pipeline** — resolved 2026-03-28: Three pipelines designed — deterministic for MATHCOUNTS, hybrid (Marker + Math OCR + LLM) for textbooks, web scrape for AMC/AIME from AoPS wiki. Estimated yield: ~23,250 problems. See `specs/extraction-pipeline.md`.
 - [ ] **ROCm model selection** — Which LLM runs on the MI50s for explanation generation? Must fit in 64GB combined MI50 VRAM (or split across MI50 + M3 Ultra MLX). Mark is open to fine-tuning. Needs benchmarking — the style-transfer task is constrained (adapt official solution using Mark's teaching patterns), so a smaller fine-tuned model may outperform a larger general one.
 
 ## Non-Blocking (Can resolve during implementation)
 
-- [ ] **ELO K-factor calibration** — Standard chess ELO as starting point, but K-factor for new students and educational context needs tuning. Fallback: start with K=32 for new students, K=16 for established.
+- [x] **ELO K-factor calibration** — resolved 2026-03-28: Glicko-2 makes this moot — update magnitude is driven by rating deviation (RD), not a fixed K. Effective K: ~40-48 for new students, ~4-8 for established. See `specs/rating-system.md`.
 - [ ] **Diagnostic test composition** — Fixed set or adaptive? Fallback: fixed 50-question diagnostic covering all domains at mixed difficulty.
 - [ ] **Mini-game visual design** — Simon Tatham's puzzle collection confirmed as the game engine base (open source, MIT license, ~40 puzzle types). Needs a "massive facelift" for the UI to match the app's minimalist modern aesthetic.
 - [ ] **Offline sync strategy** — "Daily practice set" concept is clear but sync conflict resolution needs design. Fallback: offline is read-only (download set, work, sync answers on reconnect).
-- [ ] **Problem set books handling** — AoPS series (5 books) + Gelfand series (5 books) + Mathcounts Primary Text available. Treat as lesson material, individual problems, or both? Fallback: extract problems individually, tag book chapters as lesson references.
+- [x] **Problem set books handling** — resolved 2026-03-28: Both. Extract individual problems for the question bank AND preserve chapter structure as lesson references. Worked examples become lesson material, exercises become practice items. See `specs/extraction-pipeline.md`.
 - [ ] **IP/fair use assessment** — Are competition problems usable in a non-commercial school tool? Likely yes for personal educational use but worth confirming.
 - [ ] **Coach dashboard scope** — Passive monitoring vs. active assignment. Fallback: passive monitoring for MVP, assignment capability in v2.
 - [ ] **Writing vertical specifics** — Scaffolded exercises, AP/SAT/GRE prompts, but the feedback model and exercise progression need design. Deferred to Phase 3.
 - [ ] **Voice clone vs. pre-recorded vs. text-only** — The personality slider suggests AI-generated text explanations (with tone variation) for MVP, with voice as a later enhancement. Needs confirmation.
-- [ ] **Cold-start problem** — New student with no data: how does the adaptive engine select initial problems before the diagnostic is complete?
+- [x] **Cold-start problem** — resolved 2026-03-28: New students start at rating 1500 with RD=350 (max uncertainty). Glicko-2's high-uncertainty state causes rapid convergence (~15-20 problems to stabilize). Diagnostic selects problems near the student's current rating to reduce RD fast. Item cold-start solved via expert priors + content heuristics + mini-model solve rates. See `specs/rating-system.md`.
 
 ## Resolved
 

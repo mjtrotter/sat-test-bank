@@ -113,13 +113,17 @@ Each problem record contains:
 ```
 
 ## Assumed (Needs Verification)
-- PostgreSQL or SQLite for problem and student data storage
+- PostgreSQL for problem and student data storage (SQLite insufficient for concurrent iOS app + batch jobs)
 - Explanation text + audio stored as files with DB references
-- ELO calculation uses standard chess formula with K-factor adjusted for educational context
-- The "nearest seed explanation" matching uses the skill cluster taxonomy
+- The "nearest seed explanation" matching uses the atomic skill node taxonomy
+
+## Resolved (2026-03-28)
+- **Rating system:** Glicko-2 replaces plain ELO. Multi-dimensional (global → domain → skill node). See `specs/rating-system.md`.
+- **Skill taxonomy:** 300-500+ atomic nodes replace the coarse secondary_skills array. See `specs/taxonomy-atomic.md`.
+- **Problem extraction:** 3 pipelines yield ~23K problems. See `specs/extraction-pipeline.md`.
+- **Book handling:** Extract individual problems AND preserve chapter structure as lesson references.
+- **Cold-start:** Glicko-2 RD=350 drives fast convergence (~15-20 problems). Item cold-start via expert priors + mini-model solve-rates.
 
 ## Open Questions
-- Exact granularity of secondary_skills taxonomy — needs collaborative development during ingestion
-- How are problem set books handled? Extract individual problems, or treat chapters as lesson material?
 - Should the diagnostic test be a fixed set or adaptively selected?
-- How does the ELO system handle the initial cold-start (new student, no data)?
+- Exact PostgreSQL vs managed DB hosting (self-hosted EPYC or cloud?)
