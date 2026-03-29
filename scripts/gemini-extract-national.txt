@@ -63,3 +63,10 @@ START WITH 2008 ONLY as a test batch. Print:
 - Count per round
 - 3 sample problems with answers per round (9 total)
 - Then STOP and wait for my approval before running all years (2002-2013)
+
+AFTER NATIONAL IS DONE — also extract pre-2002 (1990-2001) chapter/state/national:
+- Same source dir structure: ~/Downloads/MathCounts Tests/{YEAR}/{LEVEL}/
+- Same approach: convert to PNG, read visually, validate counts
+- Output: data/extracted/{YEAR}_{LEVEL}.json
+- These have slightly more OCR noise ("MAT!-ICOUNTS" etc.) but images are readable
+- Total: 36 level-dirs = ~1,728 additional problems
