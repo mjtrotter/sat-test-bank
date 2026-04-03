@@ -598,7 +598,7 @@ Example: `COUNT_L2_COMB_GRID` = Counting domain, Level 2, Combinations cluster, 
 
 | ID | Skill Name | Description | Prerequisites | Source Mapping |
 |----|-----------|-------------|---------------|---------------|
-| ALG_L5_ASER_TAYLOR | Taylor/Power Series | Expand functions as power series, manipulate term-by-term | ALG_L4_SEQ_CONVG; ALG_L3_BINO_EXP | Olympiad references |
+| ALG_L5_ASER_TAYLOR | Taylor/Power Series | Expand functions as power series, manipulate term-by-term | ALG_L4_SEQ_CONVG; COUNT_L3_BINO_EXP | Olympiad references |
 | ALG_L5_ASER_PARTFRAC | Partial Fractions for Series | Decompose rational functions to evaluate series | ALG_L3_PDIV_LONG; ALG_L3_ASEQ_TELE | Olympiad references |
 | ALG_L5_ASER_PRODFORM | Infinite Products | Evaluate infinite products via logarithmic series | ALG_L4_SEQ_CONVG; ALG_L3_LOG_DEF | Olympiad references |
 

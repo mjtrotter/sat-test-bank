@@ -18,7 +18,7 @@ from sqlalchemy.types import JSON # Use generic JSON type
 from sqlalchemy.orm import Mapped, mapped_column, relationship # Added this line
 
 from src.core.database import Base
-from src.models.enums import MasteryState, CalibrationSource, ContestFamily, RoundType, Domain # Added Domain here as well
+from src.models.enums import MasteryState, CalibrationSource, ContestFamily, RoundType, Domain, AnswerType, GradeBand, TextFormat
 
 # ── Students ──────────────────────────────────────────────────────────────────
 
@@ -63,34 +63,47 @@ class Problem(Base):
     __tablename__ = "problems"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    contest_family: Mapped[str] = mapped_column(String(30), index=True)
+    external_id: Mapped[str | None] = mapped_column(String(40), unique=True, index=True)  # v3 UUID for dedup
+    contest_family: Mapped[str] = mapped_column(String(50), index=True)
     contest_year: Mapped[int | None] = mapped_column(Integer, index=True)
     contest_round: Mapped[str | None] = mapped_column(String(30))
     contest_level: Mapped[str | None] = mapped_column(String(30))  # chapter/state/national
     problem_number: Mapped[int | None] = mapped_column(Integer)
     problem_text: Mapped[str] = mapped_column(Text)
-    answer: Mapped[str | None] = mapped_column(String(200))
+    text_format: Mapped[str] = mapped_column(String(10), default="plain")  # plain, latex
+    answer: Mapped[str | None] = mapped_column(Text)
+    answer_type: Mapped[str | None] = mapped_column(String(30), index=True)  # numeric, multiple_choice, expression
+    choices: Mapped[list | None] = mapped_column(JSON)  # MC options: [{"l":"A","t":"...","c":true}]
     official_solution: Mapped[str | None] = mapped_column(Text)
     mark_explanation: Mapped[str | None] = mapped_column(Text)
     mark_audio_url: Mapped[str | None] = mapped_column(String(500))
     mark_diagram_url: Mapped[str | None] = mapped_column(String(500))
     personality_variants: Mapped[dict | None] = mapped_column(JSON)
     explanation_rating: Mapped[float | None] = mapped_column(Float)
-    explanation_flags: Mapped[int] = mapped_column(Integer, default=0)
+    explanation_flags: Mapped[int] = mapped_column(Integer, server_default="0")
     latex_content: Mapped[str | None] = mapped_column(Text)
     difficulty_band: Mapped[int | None] = mapped_column(Integer)  # 1-5
-    primary_domain: Mapped[str | None] = mapped_column(String(30), index=True)
+    difficulty_source: Mapped[str | None] = mapped_column(String(30))
+    primary_domain: Mapped[str | None] = mapped_column(String(50), index=True)
+    subject: Mapped[str | None] = mapped_column(String(100), index=True)  # algebra, geometry, etc.
+    grade_band: Mapped[str | None] = mapped_column(String(20), index=True)  # ms, hs, ap, col, grad
     problem_style: Mapped[str | None] = mapped_column(String(50))
-    source_path: Mapped[str | None] = mapped_column(String(500))  # original PDF path
+    requires_visual: Mapped[bool] = mapped_column(Boolean, default=False)
+    source_dataset: Mapped[str | None] = mapped_column(String(50), index=True)  # numinamath_cot, gsm8k, etc.
+    source_path: Mapped[str | None] = mapped_column(String(500))
+    source_url: Mapped[str | None] = mapped_column(String(500))
+    extraction_method: Mapped[str | None] = mapped_column(String(50))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
         Index("ix_problems_source_lookup", "contest_family", "contest_year", "contest_round", "problem_number"),
+        Index("ix_problems_difficulty_domain", "primary_domain", "difficulty_band"),
+        Index("ix_problems_grade_subject", "grade_band", "subject"),
     )
 
-    figures: Mapped[list["ProblemFigure"]] = relationship(back_populates="problem")
-    skill_tags: Mapped[list["ProblemSkillTag"]] = relationship(back_populates="problem")
-    item_rating: Mapped["ItemRating | None"] = relationship(back_populates="problem")
+    figures: Mapped[list["ProblemFigure"]] = relationship(back_populates="problem", cascade="all, delete-orphan")
+    skill_tags: Mapped[list["ProblemSkillTag"]] = relationship(back_populates="problem", cascade="all, delete-orphan")
+    item_rating: Mapped["ItemRating | None"] = relationship(back_populates="problem", cascade="all, delete-orphan")
 
 
 class ProblemFigure(Base):
@@ -209,3 +222,88 @@ class Lesson(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     skill_node: Mapped["SkillNode"] = relationship(back_populates="lesson")
+
+
+# ── Practice Sessions ───────────────────────────────────────────────────────
+
+class PracticeSession(Base):
+    __tablename__ = "practice_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), index=True
+    )
+    domain: Mapped[str | None] = mapped_column(String(30))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    problems_attempted: Mapped[int] = mapped_column(Integer, default=0)
+    problems_correct: Mapped[int] = mapped_column(Integer, default=0)
+    rating_before: Mapped[float | None] = mapped_column(Float)
+    rating_after: Mapped[float | None] = mapped_column(Float)
+
+    student: Mapped["Student"] = relationship()
+    answers: Mapped[list["Answer"]] = relationship(back_populates="session")
+
+
+class Answer(Base):
+    __tablename__ = "answers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("practice_sessions.id", ondelete="CASCADE"), index=True
+    )
+    problem_id: Mapped[int] = mapped_column(ForeignKey("problems.id"), index=True)
+    student_answer: Mapped[str] = mapped_column(String(500))
+    is_correct: Mapped[bool] = mapped_column(Boolean)
+    time_spent_seconds: Mapped[int | None] = mapped_column(Integer)
+    rating_before: Mapped[float] = mapped_column(Float)
+    rating_after: Mapped[float] = mapped_column(Float)
+    answered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    session: Mapped["PracticeSession"] = relationship(back_populates="answers")
+    problem: Mapped["Problem"] = relationship()
+
+
+# ── Calibration Pipeline ───────────────────────────────────────────────────
+
+class CalibrationRun(Base):
+    __tablename__ = "calibration_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), default="running")  # running, completed, failed
+    model_count: Mapped[int] = mapped_column(Integer, default=0)
+    problem_count: Mapped[int] = mapped_column(Integer, default=0)
+    config: Mapped[dict | None] = mapped_column(JSON)  # band configs, prompt template version, routing
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    responses: Mapped[list["CalibrationResponse"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class CalibrationResponse(Base):
+    __tablename__ = "calibration_responses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("calibration_runs.id", ondelete="CASCADE"), index=True)
+    model_id: Mapped[str] = mapped_column(String(120), index=True)  # e.g. 'Qwen2.5-0.5B-Instruct-4bit'
+    model_band: Mapped[int] = mapped_column(Integer, index=True)
+    problem_id: Mapped[int] = mapped_column(ForeignKey("problems.id", ondelete="CASCADE"), index=True)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer)
+    response_text: Mapped[str | None] = mapped_column(Text)  # full CoT output — the "solution"
+    extracted_answer: Mapped[str | None] = mapped_column(String(500))
+    is_correct: Mapped[bool | None] = mapped_column(Boolean)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(Text)  # null if successful
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "model_id", "problem_id", name="uq_run_model_problem"),
+        Index("ix_calibration_model_correct", "model_id", "is_correct"),
+    )
+
+    run: Mapped["CalibrationRun"] = relationship(back_populates="responses")
+    problem: Mapped["Problem"] = relationship()
