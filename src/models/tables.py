@@ -14,7 +14,16 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+@compiles(JSONB, "sqlite")
+def compile_jsonb_sqlite(type_, compiler, **kw):
+    return "JSON"
+
+@compiles(UUID, "sqlite")
+def compile_uuid_sqlite(type_, compiler, **kw):
+    return "VARCHAR"
 
 from src.core.database import Base
 from src.models.enums import CalibrationSource, ContestFamily, Domain, MasteryState, RoundType
