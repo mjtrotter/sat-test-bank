@@ -12,6 +12,7 @@ Usage:
 import asyncio
 import json
 import re
+import time
 from dataclasses import dataclass
 
 from sqlalchemy import select, distinct
@@ -175,6 +176,7 @@ async def batch_tag_llm(
     skip_tagged: bool = True,
     model: str = "claude-sonnet-4-20250514",
     dry_run: bool = False,
+    rate_limit_delay: float = 1.0,
 ) -> dict:
     """Tag problems using LLM classification.
 
@@ -187,6 +189,7 @@ async def batch_tag_llm(
         skip_tagged: Skip problems already tagged by LLM.
         model: Claude model to use.
         dry_run: Print plan without making API calls.
+        rate_limit_delay: Seconds between API batches (default 1.0).
 
     Returns:
         Stats dict.
@@ -235,6 +238,9 @@ async def batch_tag_llm(
         print(f"  Model: {model}")
         return stats
 
+    total_batches = (len(problems) + batch_size - 1) // batch_size
+    start_time = time.time()
+
     # Process in batches
     for i in range(0, len(problems), batch_size):
         batch = problems[i : i + batch_size]
@@ -244,30 +250,46 @@ async def batch_tag_llm(
             batch, taxonomy_context, api_key, model=model,
         )
 
+        # Use ON CONFLICT DO NOTHING to handle re-runs gracefully
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
         for r in results:
             if r.skill_node_id not in valid_ids:
+                print(f"  Invalid skill node ID from LLM: {r.skill_node_id}")
                 stats["invalid_nodes"] += 1
                 continue
 
-            tag = ProblemSkillTag(
+            stmt = pg_insert(ProblemSkillTag).values(
                 problem_id=r.problem_id,
                 skill_node_id=r.skill_node_id,
                 confidence=r.confidence,
                 tagged_by="llm",
-            )
-            session.add(tag)
+            ).on_conflict_do_nothing()
+            await session.execute(stmt)
             stats["tags_created"] += 1
 
         stats["tagged"] += len(set(r.problem_id for r in results))
 
-        if (stats["batches"]) % 5 == 0:
-            await session.flush()
-            print(
-                f"  [{i + len(batch)}/{len(problems)}] "
-                f"batches={stats['batches']}, "
-                f"tagged={stats['tagged']}, "
-                f"tags={stats['tags_created']}"
-            )
+        # Progress logging with ETA
+        elapsed = time.time() - start_time
+        avg_per_batch = elapsed / stats["batches"]
+        eta_seconds = (total_batches - stats["batches"]) * avg_per_batch
+        eta_str = time.strftime("%H:%M:%S", time.gmtime(eta_seconds))
+
+        print(
+            f"  [{i + len(batch)}/{len(problems)}] "
+            f"batches={stats['batches']}/{total_batches}, "
+            f"tagged={stats['tagged']}, "
+            f"tags={stats['tags_created']}, "
+            f"ETA={eta_str}"
+        )
+
+        if stats["batches"] % 5 == 0:
+            await session.commit()
+
+        # Rate limiting between batches
+        if stats["batches"] < total_batches:
+            await asyncio.sleep(rate_limit_delay)
 
     await session.commit()
     return stats

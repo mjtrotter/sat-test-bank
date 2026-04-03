@@ -114,6 +114,9 @@ def classify_domain(text: str) -> list[DomainScore]:
     Returns domains sorted by score descending. Multiple domains can score
     if a problem spans topics (e.g., geometric probability).
     """
+    if not text:
+        return []
+
     results = []
     for domain, patterns in DOMAIN_KEYWORDS.items():
         matches = sum(1 for p in patterns if p.search(text))
