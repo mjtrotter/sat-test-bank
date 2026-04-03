@@ -13,7 +13,8 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.types import JSON # Use generic JSON type
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base
@@ -49,8 +50,8 @@ class SkillNode(Base):
     description: Mapped[str | None] = mapped_column(Text)
     domain: Mapped[str] = mapped_column(String(30), index=True)
     level: Mapped[int] = mapped_column(Integer, index=True)
-    prerequisites: Mapped[dict | None] = mapped_column(JSONB)  # list of prerequisite node IDs
-    source_mapping: Mapped[dict | None] = mapped_column(JSONB)  # book + chapter references
+    prerequisites: Mapped[dict | None] = mapped_column(JSON)  # list of prerequisite node IDs
+    source_mapping: Mapped[dict | None] = mapped_column(JSON)  # book + chapter references
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     tags: Mapped[list["ProblemSkillTag"]] = relationship(back_populates="skill_node")
@@ -74,7 +75,7 @@ class Problem(Base):
     mark_explanation: Mapped[str | None] = mapped_column(Text)
     mark_audio_url: Mapped[str | None] = mapped_column(String(500))
     mark_diagram_url: Mapped[str | None] = mapped_column(String(500))
-    personality_variants: Mapped[dict | None] = mapped_column(JSONB)
+    personality_variants: Mapped[dict | None] = mapped_column(JSON)
     explanation_rating: Mapped[float | None] = mapped_column(Float)
     explanation_flags: Mapped[int] = mapped_column(Integer, default=0)
     latex_content: Mapped[str | None] = mapped_column(Text)
@@ -203,8 +204,8 @@ class Lesson(Base):
     )
     lesson_type: Mapped[str] = mapped_column(String(30), default="text")  # text, video, recording
     content: Mapped[str | None] = mapped_column(Text)  # markdown + LaTeX
-    worked_examples: Mapped[dict | None] = mapped_column(JSONB)
-    visual_aids: Mapped[dict | None] = mapped_column(JSONB)
+    worked_examples: Mapped[dict | None] = mapped_column(JSON)
+    visual_aids: Mapped[dict | None] = mapped_column(JSON)
     mark_recording_url: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
